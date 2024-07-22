@@ -141,7 +141,7 @@ plot(column_chart)
   })
 #top methylated genes for each day 
 topmeth <- lapply(gene_count_list, function(x) head(x[order(x[,3], decreasing = F),]))
-#Gene count managemen
+#Gene count management
 names(gene_count_list) <- paste0("day_", seq_along(gene_count_list) - 1, "_count")
 gene_count_list <- Filter(function(df) nrow(df) > 0, gene_count_list)
 for (i in seq_along(gene_count_list)) {
@@ -157,24 +157,15 @@ for(i in 2:length(gene_count_list_wide)) {
 }
 merged_gene_counts <- merged_gene_counts %>%
   mutate_all(~replace_na(., 0))
-# Data export to processed data folder
+# gene count data export to processed data folder
 write_xlsx(merged_gene_counts, path = "processed_data/all_day_gene_counts.xlsx")
-
-
-
-# CIA sustojau
-
-
-
-
-# this is bad 
+# loading gene  intervals and other relevant data
 gr <- gene_annotations_file
 gene_ids <- mcols(gr)$gene_id
 starts <- start(gr)
 ends <- end(gr)
 chromosomes <- seqnames(gr)
-
-#patogi forma
+#easy to use form of gene ranges
 gene_ranges <- data.frame(
   gene_id = gene_ids,
   start = starts,
@@ -189,22 +180,15 @@ genome_len <- 6527555
 # n - unmethylated points in the entire genome.    genome_len - sum(cick_gene$day_0_count)
 # k - is the gene size - nucleotides.       
 # m and n  are always the same
-
-
 #Intervals
 merged_gene_counts_intervals <- full_join(gene_ranges,merged_gene_counts, by = "gene_id")
 merged_gene_counts_intervals$transcript_id <- NULL
-
 cick_gene<- na.omit(merged_gene_counts_intervals)
-
-######
-
+# count p values with gypergeometric function
 for (day_name in names(gene_count_list)) {
   day_count_col <- day_name
   p_value_col <- gsub("count", "p_value", day_name)
-  
   total_day_count <- sum(cick_gene[[day_count_col]], na.rm = TRUE)
-  
   cick_gene <- cick_gene %>%
     rowwise() %>%
     mutate(
@@ -218,28 +202,17 @@ for (day_name in names(gene_count_list)) {
     ) %>%
     ungroup()  
 }
-
-
 p_value_cols <- grep("p_value", names(cick_gene), value = TRUE)
-cick_gene <- cick_gene %>%
+cick_gene <- cick_gene %>% # 
   mutate(across(all_of(p_value_cols), ~p.adjust(.x, method = 'BH')))
 
-
+# Significantly methylated genes
 cick_gene_significant <- cick_gene %>%
   mutate(across(starts_with("p_value_day_"), ~if_else(.x > 0.05, "non-significant", as.character(.x))))
-##### valio valiovalio
+#saving data
+write_xlsx(cick_gene_significant, path = "processed_data/significant_gene_counts.xlsx")
 
-
-# so leave the full scientific p values:
-# and callulate the p adjust when it doesnt have the non-significant genes
-#
-#  library(writexl)
-#  write_xlsx(cick_gene_significant, path = "~/Desktop/significant_genes_850_85.xlsx")
-# # # 
-####### VISKAS IKI CIA VISKAS VEIKIA - CIA SUBPLOTAM BUS VIETa
-
-
-# top methylation grafikai
+# top methylation plots
 topmeth <- lapply(gene_count_list, function(x) head(x[order(x[,3], decreasing = T),]))
 topmeth <- lapply(topmeth, function(df) {
   select(df, all_of(c("locus_tag", "gene_name", "count")))
@@ -274,29 +247,8 @@ for (i in seq_along(topmeth)) {
          y = "Count") +
     theme_thesis()
 }
-#############GRAFIKAM DEMO
-# for (i in seq_along(plot_list)) {
-#   plot_name <- names(plot_list)[i]
-#   file_name <- paste("plot_", plot_name, ".pdf", sep = "")
-#   ggsave(file_name, plot = plot_list[[i]], device = "pdf", width = 11, height = 8.5)
-# }
 
-
-# TOLIAU GRAFIKAI LENTELIu
-# tabletes5 <- methylated_points_per_gene_6 %>%
-#   select(gene_id,gene_name ,count) %>%
-#   arrange(desc(count)) %>%  # Arrange by column3 in descending order
-#   slice_head(n = 10) 
-# 
-# # Saving the data frame df as a CSV file
-# write.csv(methylated_points_per_gene_6, "sesta.csv", row.names = FALSE)
-# 
-
-
-
-
-
-###Surisimas su TF
+###Connection with transcription factors (work in progress)
 
 # 
 # cick_gene <- cick_gene %>%
@@ -353,18 +305,14 @@ for (i in seq_along(topmeth)) {
 # # write.csv(m_gene_path_5, "4_day_associated_genes.csv", row.names = FALSE)
 # # write.csv(m_gene_path_6, "5_associated_genes.csv", row.names = FALSE)
 # 
-# ###GRAAPHS
-
-
+# ###GRAPHS
 topmeth <- lapply(names(topmeth), function(name) {
   df <- topmeth[[name]]
   df$table_name <- gsub("_count", "", name)  # Remove '_count' from name
   return(df)
 })
-
 # Combine the list into a single data frame
 combined_topmeth <- bind_rows(topmeth)
-
 # Create the plot
 nr_genai <- ggplot(combined_topmeth, aes(x = gene_name, y = count)) +
   geom_col(fill = "cornflowerblue", color = "black") +
@@ -375,34 +323,9 @@ nr_genai <- ggplot(combined_topmeth, aes(x = gene_name, y = count)) +
     y = "Number of Methylated Loci"
   ) +
   theme_thesis() +
-  scale_y_continuous(breaks = scales::pretty_breaks(n = 5), limits = c(0, NA)) +  # Ensure y-axis is fixed to integers
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 5), limits = c(0, NA)) +
   facet_wrap(~ table_name, scales = "free_x")  # Use free scales for x-axis
-
-# Display the plot
 print(nr_genai)
-
-
-# topmeth <- lapply(names(topmeth), function(name) {
-#   df <- topmeth[[name]]
-#   df$table_name <- gsub("_count", "", name)  # Remove '_count' from name
-#   return(df)
-# })
-
-# Combine the list into a single data frame
-Day2_top <- topmeth[[1]]
-
-#DAY 2 and Day 5 plots
-nr_genai <- ggplot(combined_topmeth, aes(x = gene_name, y = count)) +
-  geom_col(fill = "cornflowerblue", color = "black") +
-  geom_text(aes(label = count), vjust = -0.5, size = 4) +
-  labs(
-    title = "Top 10 Most Methylated Genes",
-    x = "Gene Name",
-    y = "Number of Methylated Loci"
-  ) +
-  theme_thesis() +
-  scale_y_continuous(breaks = scales::pretty_breaks(n = 5), limits = c(0, NA)) +  # Ensure y-axis is fixed to integers
-  facet_wrap(~ table_name, scales = "free_x")  # Use free scales for x-axis
-
-# Display the plot
-print(nr_genai)
+output_directory <- "plots"
+output_file <- file.path(output_directory, "Top_methylated_genes.pdf")
+pdf(file = output_file, width = 8, height = 8)
