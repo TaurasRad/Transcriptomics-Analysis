@@ -6,11 +6,11 @@ library(tidyr)
 library(openxlsx)
 library(clusterProfiler)
 library(patchwork)
-setwd("/Users/vardaspavarde/Desktop/")
+library(writexl)
+setwd('/Users/vardaspavarde/Documents/GitHub/Transcriptomics-Analysis')
 
 
-gene_annotations_file <- import('/Users/vardaspavarde/Desktop/Pseudomonas_aeruginosa_UCBPP-PA14_109.gtf')
-
+gene_annotations_file <- import('data/Pseudomonas_aeruginosa_UCBPP-PA14_109.gtf')
 
 read_and_filter_bed <- function(file_path, score_threshold, percentage_threshold) {
   # Column names for BED files
@@ -19,38 +19,39 @@ read_and_filter_bed <- function(file_path, score_threshold, percentage_threshold
     "strand", "thickStart", "thickEnd", "itemRgb",
     "blockCount", "percentage", "blockStarts"
   )
-  
+  # Extract the day information from the file name (assuming the day is a number in the file name)
+  day <- gsub("\\D", "", basename(file_path))
   # Read and process the .bed file
   bed_df <- read.table(file_path, header = FALSE, sep = "\t", fill = TRUE, check.names = FALSE)
   colnames(bed_df) <- bed_column_names[1:min(ncol(bed_df), length(bed_column_names))]
-
+  # Handle columns with NA or empty names
   na_or_empty_names <- which(is.na(names(bed_df)) | names(bed_df) == "")
   if(length(na_or_empty_names) > 0) {
     names(bed_df)[na_or_empty_names] <- paste0("X", na_or_empty_names)
   }
-
+  # Filter the data frame
   filtered_df <- bed_df %>%
     filter(!is.na(score) & score > score_threshold,
            !is.na(percentage) & percentage > percentage_threshold)
-  
+  # Add the day column
+  filtered_df$day <- day
   return(filtered_df)
 }
-
-# File paths
-file_paths <- c("/Users/vardaspavarde/Desktop/PA14_plus_DM3VIR/day0.bed",
-                "/Users/vardaspavarde/Desktop/PA14_plus_DM3VIR/day01.bed",
-                "/Users/vardaspavarde/Desktop/PA14_plus_DM3VIR/day02.bed",
-                "/Users/vardaspavarde/Desktop/PA14_plus_DM3VIR/day03.bed",
-                "/Users/vardaspavarde/Desktop/PA14_plus_DM3VIR/day04.bed",
-                "/Users/vardaspavarde/Desktop/PA14_plus_DM3VIR/day05.bed")
-score_threshold <- 900
+# File paths to bed files (They must be loaded in the same order as the experiment took place)
+file_paths <- c("data/day0.bed",
+                "data/day01.bed",
+                "data/day02.bed",
+                "data/day03.bed",
+                "data/day04.bed",
+                "data/day05.bed")
+#Score and percentage threshold for filtering 
+score_threshold <- 500
 percentage_threshold <- 50
-
+#resulting beds
 filtered_beds <- lapply(file_paths, read_and_filter_bed, score_threshold, percentage_threshold)
-
+# function for getting summary of stats for the filtered datasets
 summarize_and_compare <- function(filtered_bed, original_bed_path) {
   original_bed <- read.table(original_bed_path, header = FALSE, sep = "\t")
-  
   # Summary statistics
   summary_stats <- filtered_bed %>%
     summarise(
@@ -60,7 +61,6 @@ summarize_and_compare <- function(filtered_bed, original_bed_path) {
       mean_percentage = mean(percentage, na.rm = TRUE),
       median_percentage = median(percentage, na.rm = TRUE)
     )
-  
   # Comparative Analysis
   total_count <- nrow(original_bed)
   filtered_count <- nrow(filtered_bed)
@@ -71,72 +71,21 @@ summarize_and_compare <- function(filtered_bed, original_bed_path) {
                         filtered_count = filtered_count, proportion = proportion)
   return(result_table)
 }
-
-
+# get stats for each day of the experiment
 all_results <- lapply(seq_along(filtered_beds), function(i) {
   summarize_and_compare(filtered_beds[[i]], file_paths[i])
 })
-
+# Final stat table
 final_summary_table <- bind_rows(all_results)
-
-#SUPER CIA VEIKIA PUIKIAI !!!!!!!!!!!!!!
-
-
-
 # Filter each filtered list once more to get rid of redundant information
-filtered_beds_raw <- filtered_beds
-filtered_beds <- lapply(filtered_beds, function(df) {
-  select(df, all_of(c("chromStart", "chromEnd", "score", "percentage")))
-})
-#THIS IS MUCH MORE CLEAR AND FILTERED 
-merged_bed <- Reduce(function(x, y) merge(x, y, by = c("chromStart", "chromEnd"), all = TRUE), filtered_beds)
-
-### Ziurim ar veikia- veikia
-
-#THIS IS MANUAL
-names_vector <- c(
-  "chromStart", "chromEnd", 
-  "score.x", "percentage.x", 
-  "score.y", "percentage.y", 
-  "score.x.x", "percentage.x.x", 
-  "score.y.y", "percentage.y.y", 
-  "score.x.x.x", "percentage.x.x.x", 
-  "score.y.y.y", "percentage.y.y.y"
-)
-names(merged_bed) <- names_vector
-identify_methylated_days <- function(row) {
-  days_methylated <- c()
-  if (!is.na(row$score.x)) days_methylated <- c(days_methylated, "0") #Suziureti eiles tvarka cia
-  if (!is.na(row$score.y)) days_methylated <- c(days_methylated, "1")
-  if (!is.na(row$score.x.x)) days_methylated <- c(days_methylated, "2")
-  if (!is.na(row$score.y.y)) days_methylated <- c(days_methylated, "3")
-  if (!is.na(row$score.x.x.x)) days_methylated <- c(days_methylated, "4")
-  if (!is.na(row$score.y.y.y)) days_methylated <- c(days_methylated, "5")####SUZIURET ar tie failai prisikirti
-  #DUOMENIS NES ZIAURIAI KEISTAI RODO CIA
-  return(paste(days_methylated, collapse = ","))
-}
-
-# apply every row
-merged_bed$days_methylated <- sapply(seq_len(nrow(merged_bed)), function(i) identify_methylated_days(merged_bed[i, ]))
-
+merged_bed <- bind_rows(filtered_beds)
+#methylation loci 
 days_table <- merged_bed %>%
-  select(chromStart, days_methylated) %>%
-  distinct(chromStart, days_methylated)
-
-#CIA JAU DATA ANALIZE IR GRAFIKAI
-#print(days_table)
-#this is a very terrible way to show how methylation changes distributes
-  # pie_chart <- ggplot(day_counts, aes(x = "", y = n, fill = days_methylated)) +
-  #   geom_bar(stat = "identity", width = 1, color = "white") +
-  #   coord_polar("y", start = 0) +
-  #   theme_void() +
-  #   theme(legend.position = "bottom") +  
-  #   labs(title = "Days Methylated Distribution", fill = "Days Methylated") +
-  #   guides(fill = guide_legend(title.position = "top", title.hjust = 0.5))  
-  # print(pie_chart)
-
-day_counts <- count(days_table, days_methylated)
-column_chart <- ggplot(day_counts, aes(x = days_methylated, y = n, fill = days_methylated)) +
+  select(chromStart, day) %>%
+  distinct(chromStart, day)
+#Methylation data plots
+day_counts <- count(days_table, day)
+column_chart <- ggplot(day_counts, aes(x = day, y = n, fill = day)) +
   geom_col() + 
   theme_minimal() + 
   labs(title = "Days Methylated Distribution", 
@@ -150,17 +99,11 @@ column_chart <- ggplot(day_counts, aes(x = days_methylated, y = n, fill = days_m
         plot.title = element_text(size = 20),     # Bigger plot title
         legend.title = element_text(size = 14),   # Bigger legend title
         legend.text = element_text(size = 12))    # Bigger legend text
-
-pdf(file = "column_chart_new.pdf", width = 8, height = 8)
+# path to plot folder
+output_directory <- "/Users/vardaspavarde/Documents/GitHub/Transcriptomics-Analysis/plots"
+output_file <- file.path(output_directory, "Methylation_distribution.pdf")
+pdf(file = output_file, width = 8, height = 8)
 plot(column_chart)
-dev.off()
-print(column_chart)
-######### THIS WORKS GOOOOOD
-
-#I would guess that only the first day was when the spacer is held - all other days are RM system regulated 
-
-
-#CIA BUS MAPPINAMI GENAI IS VISU DIENU
 #######GERESNE VERSIJA :
 # Function to find overlaps and count methylated points
   process_bed_data <- function(bed_data, gene_annotations_file) {
@@ -169,20 +112,16 @@ print(column_chart)
       ranges = IRanges(start = bed_data$chromStart, end = bed_data$chromEnd),
       strand = bed_data$strand
     )
-    
-    # One chromosome 
+    # One chromosome - hardcoded needs adjustment with multi_chromosome having organisms
     seqlevels(gene_annotations_file) <- "1"
     seqlevels(bed_gr) <- "1"
-    
     overlaps <- findOverlaps(bed_gr, gene_annotations_file)
     # Count overlaps 
     overlap_counts <- table(subjectHits(overlaps))
-    
     gene_ids <- mcols(gene_annotations_file)$gene_id[as.integer(names(overlap_counts))]
     gene_names <- mcols(gene_annotations_file)$name[as.integer(names(overlap_counts))]
     locus_tags <- mcols(gene_annotations_file)$locus_tag[as.integer(names(overlap_counts))]
     transcript_ids <- mcols(gene_annotations_file)$transcript_id[as.integer(names(overlap_counts))]
-    
     # Create a data frame with the new columns
     methylated_points_per_gene <- data.frame(
       gene_id = gene_ids, 
@@ -191,137 +130,39 @@ print(column_chart)
       transcript_id = transcript_ids,
       count = as.integer(overlap_counts)
     )
-    
     return(methylated_points_per_gene)
   }
-  
-  # bed data process
+  # Counts the amount of genes methylated
   gene_count_list <- lapply(seq_along(filtered_beds_raw), function(i) {
     bed_data <- filtered_beds_raw[[i]]
     methylated_points_per_gene <- process_bed_data(bed_data, gene_annotations_file)
     assign(paste0("methylated_points_per_gene_", i), methylated_points_per_gene, envir = .GlobalEnv)
     return(methylated_points_per_gene)
   })
-  
+#top methylated genes for each day 
 topmeth <- lapply(gene_count_list, function(x) head(x[order(x[,3], decreasing = F),]))
-#   
-
-# Sitas PGD1656278 daugiausiai pasikartoja 
-################Va cia eksperimentuojam su paperiais
-# library(rentrez)
-# 
-# # Function to search PubMed for articles referencing a gene
-# get_papers_for_gene <- function(locus_tag) {
-#   search_results <- entrez_search(db="pubmed", term=paste(locus_tag, "AND Pseudomonas aeruginosa PA14[Title/Abstract]"))
-#   pmids <- search_results$ids
-#   return(pmids)
-# }
-# 
-# # Assuming 'gene_count_list' is your list of data frames
-# # These are only for the papers for top in the list gene's
-# # pasiziureta ar naudoti gene id ar kazka kita
-# papers_list <- lapply(topmeth, function(df) {
-#   df$papers <- sapply(df$locus_tag, get_papers_for_gene)
-#   return(df)
-# })
-
-
-
-#Paprasciau bandyt cia isdropint tuscius laukelius
+#Gene count managemen
 names(gene_count_list) <- paste0("day_", seq_along(gene_count_list) - 1, "_count")
-
 gene_count_list <- Filter(function(df) nrow(df) > 0, gene_count_list)
-#### TIK CIA RISKY SUZIURET AR VISKAS GERAI NES LIKS TRYS DIENOS
-###### IKICia LOADINu
-
-
 for (i in seq_along(gene_count_list)) {
   gene_count_list[[i]]$day <- names(gene_count_list)[i]
 }
-
 gene_count_list_wide <- lapply(gene_count_list, function(df) {
   pivot_wider(df, names_from = day, values_from = count, values_fill = list(count = 0))
 })
-
 merged_gene_counts <- gene_count_list_wide[[1]]
 for(i in 2:length(gene_count_list_wide)) {
   merged_gene_counts <- full_join(merged_gene_counts, gene_count_list_wide[[i]], 
                                   by = c("gene_id", "gene_name", "locus_tag", "transcript_id"))
 }
-
 merged_gene_counts <- merged_gene_counts %>%
   mutate_all(~replace_na(., 0))
-
-# IKI CIA VISKAS SUPER IR OK
-
-# # Eksportavau duomenis
-# library(writexl)
-# write_xlsx(merged_gene_counts, path = "~/Desktop/5day_gene_counts.xlsx")
-# 
+# Data export to processed data folder
+write_xlsx(merged_gene_counts, path = "processed_data/all_day_gene_counts.xlsx")
 
 
-# Nuo cia eksperimentas: 
-#man reikia nefiltruotu duomenu
 
-# file_path <- "/Users/vardaspavarde/Desktop/PA14_plus_DM3VIR/day0.bed"
-# 
-# bed_column_names <- c(
-#   "chrom", "chromStart", "chromEnd", "name", "score",
-#   "strand", "thickStart", "thickEnd", "itemRgb",
-#   "blockCount", "percentage", "blockStarts",'X1','X2','X3','X4'
-# )
-# 
-# # Read and process the .bed file
-# bedas <- read.table(file_path, header = FALSE, sep = "\t", fill = TRUE, check.names = FALSE)
-# colnames(bedas) <- bed_column_names[1:min(ncol(bedas), length(bed_column_names))]
-
-######################
-# 
-# library(dunn.test)
-# 
-# max_end <- max(bedas$chromEnd)
-# 
-# # Generate a complete sequence of positions
-# complete_seq <- data.frame(chromStart = full_range[1]:(full_range[2]-1),
-#                            chromEnd = (full_range[1]+1):full_range[2])
-# 
-# template_df <- data.frame(chrom = 'contig_1',chromStart = min_start:(max_end - 1),chromEnd = (min_start + 1):max_end, name = 'Fake', score = 0, strand = '+', thickStart = complete_seq$chromStart, thickEnd = complete_seq$chromEnd, itemRgb = '0,0,0', blockCount = 0,  percentage = 0.00,  blockStarts = 0, X1 = 0, X2 = 0, X3 = 0)
-# # Assuming 'methylation_data' is prepared with columns: 'chromosome', 'start', 'end', 'methylation_level'
-# 
-# 
-# bedas2 <- data.frame(chromStart=bedas$chromStart, chromEnd=bedas$chromEnd,name=bedas$name)
-# template2 <- data.frame(chromStart=template_df$chromStart, chromEnd=template_df$chromEnd,name=template_df$name)
-# 
-# 
-# chimera <- left_join(template2,bedas2, by = c('chromStart','chromEnd'))
-# chimera <- chimera %>% select(-name.x)
-# chimera$name.y[is.na(chimera$name.y)] <- "Fake"
-# # cia jau calculiavimas, trying at 1000
-# num_of_intervals <- round(nrow(chimera)/1000,0)
-# 
-# chimera$chromEnd <- NULL
-# 
-# chimera$interval <- (chimera$chromStart - 1) %/% 1000
-# 
-# methylation_summary <- chimera %>%
-#   group_by(interval) %>%
-#   summarise(
-#     methylated_count = sum(name.y == "5mC"),
-#     total_count = n(),
-#     percentage_methylated = (methylated_count / total_count) * 100
-#   ) %>%
-#   ungroup()
-# 
-# 
-# methylation_summary$interval_range <- paste(methylation_summary$interval * 1000, (methylation_summary$interval + 1) * 1000 - 1, sep = "-")
-# 
-# #####
-# final_meth <- methylation_summary %>%
-#   select(interval_range, percentage_methylated)
-# # siaip gaunam tobulai ta lauka kur reikia wow net
-# final_output_sorted <- final_output %>%
-#   arrange(desc(percentage_methylated))
-# 
+# CIA sustojau
 
 
 
